@@ -1,0 +1,29 @@
+services:
+  db:
+    build:
+      context: ./postgres-cron
+    image: dungcony-postgres-17-cron
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: tmdt
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: "123456"
+    ports:
+      - "5432:5432"
+    volumes:
+      - local_db_data:/var/lib/postgresql/data
+      - ./db-dumps/dump.sql:/docker-entrypoint-initdb.d/00-dump.sql:ro
+    healthcheck:
+      test: [ "CMD-SHELL", "pg_isready -U postgres -d tmdt" ]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+    command:
+      - postgres
+      - -c
+      - shared_preload_libraries=pg_cron
+      - -c
+      - cron.database_name=tmdt
+
+volumes:
+  local_db_data:
