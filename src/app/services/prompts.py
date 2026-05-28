@@ -11,8 +11,9 @@ Các intent hợp lệ:
 - general: câu hỏi chung về shop, chính sách, hotline, đổi trả
 
 Quy tắc:
-- Nếu thiếu thông tin thì để chuỗi rỗng trong extracted.
-- Không tự tạo mã đơn hàng, tên sản phẩm, size hoặc thương hiệu.
+- Nếu thiếu thông tin thì để chuỗi rỗng trong extracted; riêng product_name để null khi không có tên sản phẩm rõ ràng.
+- Không tự tạo mã đơn hàng, tên sản phẩm, size, danh mục hoặc thương hiệu.
+- Câu hỏi kiểu "sản phẩm hợp lý mùa hè", "mặc gì khi trời mưa", "đồ đi học" là ngữ cảnh gợi ý, không phải tên sản phẩm. Không đưa "hè này", "mùa mưa", "đi học" vào product_name.
 - confidence cao khi câu hỏi rõ intent; thấp khi câu hỏi mơ hồ.
 """
 

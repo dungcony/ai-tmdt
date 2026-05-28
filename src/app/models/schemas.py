@@ -1,6 +1,6 @@
 from typing import Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, PrivateAttr
 
 
 IntentName = Literal[
@@ -14,7 +14,7 @@ IntentName = Literal[
 
 
 class ExtractedEntities(BaseModel):
-    product_name: str = ""
+    product_name: str | None = None
     brand: str = ""
     size: str = ""
     order_code: str = ""
@@ -27,6 +27,7 @@ class IntentResult(BaseModel):
     extracted: ExtractedEntities = Field(default_factory=ExtractedEntities)
     reason: str = ""
     source: Literal["keyword", "gemini", "fallback"] = "fallback"
+    _question: str = PrivateAttr(default="")
 
 
 class ChatRequest(BaseModel):

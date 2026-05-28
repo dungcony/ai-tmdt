@@ -24,7 +24,7 @@ INTENT_RESPONSE_SCHEMA: dict[str, Any] = {
         "extracted": {
             "type": "object",
             "properties": {
-                "product_name": {"type": "string"},
+                "product_name": {"type": "string", "nullable": True},
                 "brand": {"type": "string"},
                 "size": {"type": "string"},
                 "order_code": {"type": "string"},

@@ -6,6 +6,7 @@ from psycopg import Error as PsycopgError
 from app.config import Settings
 from app.models import IntentResult
 from app.services.db_client import DatabaseClient
+from app.services.product_context import detect_season_context
 from app.utils.formatting import format_money
 
 
@@ -43,26 +44,110 @@ class ContextBuilder:
         extracted = intent_result.extracted
         filters = ["p.status <> 'DELETED'"]
         params: list[Any] = []
+        has_product_filters = False
 
         if extracted.product_name:
             filters.append("(p.name ILIKE %s OR p.description ILIKE %s OR p.code ILIKE %s)")
             like = f"%{extracted.product_name}%"
             params.extend([like, like, like])
+            has_product_filters = True
 
         if extracted.brand:
             filters.append("(p.provider_code ILIKE %s OR p.provider_name ILIKE %s)")
             like = f"%{extracted.brand}%"
             params.extend([like, like])
+            has_product_filters = True
 
         if extracted.category:
             filters.append("(p.category_code ILIKE %s OR p.category_name ILIKE %s)")
             like = f"%{extracted.category}%"
             params.extend([like, like])
+            has_product_filters = True
 
+        question = getattr(intent_result, "_question", "")
+        seasonal_categories = detect_season_context(question) if not has_product_filters else []
+        context_note = ""
+        if seasonal_categories:
+            self._add_recommendation_filters(filters, params, seasonal_categories)
+            context_note = (
+                "Ngữ cảnh gợi ý theo mùa/dịp: "
+                f"{', '.join(seasonal_categories)}. "
+                "Ưu tiên sản phẩm BESTSELLER/ON_SALE rồi đến bán chạy và rating cao."
+            )
+        elif not has_product_filters:
+            context_note = (
+                "Ngữ cảnh gợi ý chung: không có filter sản phẩm cụ thể, "
+                "ưu tiên sản phẩm BESTSELLER/ON_SALE rồi đến bán chạy và rating cao."
+            )
+
+        products = await self._fetch_products(filters, params)
+        if not products and seasonal_categories:
+            products = await self._fetch_products(["p.status <> 'DELETED'"], [])
+            if products:
+                context_note = (
+                    "Không có sản phẩm khớp trực tiếp theo mùa/dịp; "
+                    "fallback sang sản phẩm nổi bật chung."
+                )
+
+        if not products:
+            size_context = await self._size_chart_context(extracted.size)
+            if size_context:
+                return size_context
+            return "Không tìm thấy sản phẩm phù hợp trong ai_view.products."
+
+        inventory_by_product = await self._inventory_by_product(
+            [product["id"] for product in products],
+            extracted.size,
+        )
+
+        lines = ["Dữ liệu sản phẩm từ ai_view:"]
+        if context_note:
+            lines.append(context_note)
+        for product in products:
+            stock_lines = inventory_by_product.get(product["id"]) or []
+            stock_text = "; ".join(stock_lines) if stock_lines else "chưa có dữ liệu tồn kho phù hợp"
+            lines.append(
+                "- "
+                f"{product['name']} | mã {product['code']} | "
+                f"giá {format_money(product['price'])} | "
+                f"trạng thái {product.get('status') or 'N/A'} | "
+                f"thương hiệu {product.get('provider_name') or 'N/A'} | "
+                f"danh mục {product.get('category_name') or 'N/A'} | "
+                f"rating {product.get('rated') or 'N/A'} | "
+                f"tồn tổng {int(product.get('available_quantity') or 0)} | "
+                f"{stock_text}"
+            )
+
+        size_context = await self._size_chart_context(extracted.size)
+        if size_context:
+            lines.append(size_context)
+        return "\n".join(lines)
+
+    def _add_recommendation_filters(
+        self,
+        filters: list[str],
+        params: list[Any],
+        categories: list[str],
+    ) -> None:
+        recommendation_filters: list[str] = []
+        for category in categories:
+            like = f"%{category}%"
+            recommendation_filters.append(
+                "(p.category_code ILIKE %s OR p.category_name ILIKE %s OR p.name ILIKE %s OR p.description ILIKE %s)"
+            )
+            params.extend([like, like, like, like])
+
+        if recommendation_filters:
+            filters.append(f"({' OR '.join(recommendation_filters)})")
+
+    async def _fetch_products(
+        self,
+        filters: list[str],
+        params: list[Any],
+    ) -> list[dict[str, Any]]:
         where_clause = " AND ".join(filters)
-        params.append(self.settings.max_context_items)
-
-        products = await self.database.fetch_all(
+        query_params = [*params, self.settings.max_context_items]
+        return await self.database.fetch_all(
             f"""
             SELECT p.id,
                    p.name,
@@ -82,42 +167,18 @@ class ContextBuilder:
                    ) AS available_quantity
             FROM products p
             WHERE {where_clause}
-            ORDER BY p.quantity_sold DESC NULLS LAST, p.rated DESC NULLS LAST
+            ORDER BY CASE p.status
+                         WHEN 'BESTSELLER' THEN 0
+                         WHEN 'ON_SALE' THEN 1
+                         WHEN 'ACTIVE' THEN 2
+                         ELSE 3
+                     END,
+                     p.quantity_sold DESC NULLS LAST,
+                     p.rated DESC NULLS LAST
             LIMIT %s
             """,
-            params,
+            query_params,
         )
-
-        if not products:
-            size_context = await self._size_chart_context(extracted.size)
-            if size_context:
-                return size_context
-            return "Không tìm thấy sản phẩm phù hợp trong ai_view.products."
-
-        inventory_by_product = await self._inventory_by_product(
-            [product["id"] for product in products],
-            extracted.size,
-        )
-
-        lines = ["Dữ liệu sản phẩm từ ai_view:"]
-        for product in products:
-            stock_lines = inventory_by_product.get(product["id"]) or []
-            stock_text = "; ".join(stock_lines) if stock_lines else "chưa có dữ liệu tồn kho phù hợp"
-            lines.append(
-                "- "
-                f"{product['name']} | mã {product['code']} | "
-                f"giá {format_money(product['price'])} | "
-                f"thương hiệu {product.get('provider_name') or 'N/A'} | "
-                f"danh mục {product.get('category_name') or 'N/A'} | "
-                f"rating {product.get('rated') or 'N/A'} | "
-                f"tồn tổng {int(product.get('available_quantity') or 0)} | "
-                f"{stock_text}"
-            )
-
-        size_context = await self._size_chart_context(extracted.size)
-        if size_context:
-            lines.append(size_context)
-        return "\n".join(lines)
 
     async def _inventory_by_product(
         self,
