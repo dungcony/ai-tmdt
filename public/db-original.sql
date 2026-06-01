@@ -738,8 +738,6 @@ CREATE TABLE public.tbl_vouchers
 (
     id               integer                                                      NOT NULL,
     code             character varying(30)                                        NOT NULL,
-    "discountType"   character varying(20)                                        NOT NULL,
-    "voucherType"    character varying(20)                                        NOT NULL,
     status           character varying(20)    DEFAULT 'ACTIVE'::character varying NOT NULL,
     value            integer                                                      NOT NULL,
     min_order_amount numeric(38, 2)           DEFAULT 0                           NOT NULL,
@@ -750,11 +748,11 @@ CREATE TABLE public.tbl_vouchers
     updated_at       timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     discount_type    character varying(20)                                        NOT NULL,
     voucher_type     character varying(20)                                        NOT NULL,
-    CONSTRAINT chk_voucher_discount_type CHECK ((("discountType")::text = ANY
+    CONSTRAINT chk_voucher_discount_type CHECK ((("discount_type")::text = ANY
                                                  ((ARRAY ['PERCENT'::character varying, 'FIXED'::character varying])::text[]))),
     CONSTRAINT chk_voucher_status CHECK (((status)::text = ANY
                                           ((ARRAY ['ACTIVE'::character varying, 'INACTIVE'::character varying, 'COMMING_SOON'::character varying])::text[]))),
-    CONSTRAINT chk_voucher_type CHECK ((("voucherType")::text = ANY
+    CONSTRAINT chk_voucher_type CHECK ((("voucher_type")::text = ANY
                                         ((ARRAY ['NEWBIE'::character varying, 'GLOBAL'::character varying])::text[]))),
     CONSTRAINT tbl_vouchers_discount_type_check CHECK (((discount_type)::text = ANY
                                                         ((ARRAY ['PERCENT'::character varying, 'FIXED'::character varying])::text[]))),
@@ -3118,8 +3116,6 @@ CREATE TABLE public.tbl_vouchers
 (
     id               integer                                                      NOT NULL,
     code             character varying(30)                                        NOT NULL,
-    "discountType"   character varying(20)                                        NOT NULL,
-    "voucherType"    character varying(20)                                        NOT NULL,
     status           character varying(20)    DEFAULT 'ACTIVE'::character varying NOT NULL,
     value            integer                                                      NOT NULL,
     min_order_amount numeric(38, 2)           DEFAULT 0                           NOT NULL,
@@ -3130,11 +3126,11 @@ CREATE TABLE public.tbl_vouchers
     updated_at       timestamp with time zone DEFAULT CURRENT_TIMESTAMP,
     discount_type    character varying(20)                                        NOT NULL,
     voucher_type     character varying(20)                                        NOT NULL,
-    CONSTRAINT chk_voucher_discount_type CHECK ((("discountType")::text = ANY
+    CONSTRAINT chk_voucher_discount_type CHECK ((("discount_type")::text = ANY
                                                  ((ARRAY ['PERCENT'::character varying, 'FIXED'::character varying])::text[]))),
     CONSTRAINT chk_voucher_status CHECK (((status)::text = ANY
                                           ((ARRAY ['ACTIVE'::character varying, 'INACTIVE'::character varying, 'COMMING_SOON'::character varying])::text[]))),
-    CONSTRAINT chk_voucher_type CHECK ((("voucherType")::text = ANY
+    CONSTRAINT chk_voucher_type CHECK ((("voucher_type")::text = ANY
                                         ((ARRAY ['NEWBIE'::character varying, 'GLOBAL'::character varying])::text[]))),
     CONSTRAINT tbl_vouchers_discount_type_check CHECK (((discount_type)::text = ANY
                                                         ((ARRAY ['PERCENT'::character varying, 'FIXED'::character varying])::text[]))),

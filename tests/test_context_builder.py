@@ -30,6 +30,37 @@ class FakeDatabaseClient:
             ]
         if "FROM inventory" in query:
             return [{"product_id": 1, "size": "M", "quantity": 12, "inventory_status": "AVAILABLE"}]
+        if "FROM vouchers" in query:
+            return [
+                {
+                    "code": "WELCOME10",
+                    "discount_type": "PERCENT",
+                    "value": 10,
+                    "min_order_amount": 200000,
+                    "start_at": None,
+                    "end_at": "2026-06-30",
+                }
+            ]
+        if "FROM promotions" in query:
+            return [
+                {
+                    "value": 50000,
+                    "scope": "GLOBAL",
+                    "priority": 1,
+                    "start_at": None,
+                    "end_at": "2026-06-30",
+                }
+            ]
+        if "FROM product_reviews" in query:
+            return [
+                {
+                    "product_name": "Ão thun nam Nike",
+                    "product_code": "TSH-001",
+                    "rating": 5,
+                    "content": "Váº£i má»‹n, form Ä‘áº¹p",
+                    "created_at": "2026-05-01",
+                }
+            ]
         return []
 
 
@@ -47,7 +78,12 @@ class ContextBuilderTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(source, "db")
         self.assertIn("Áo thun nam Nike", context)
+        self.assertIn("Knowledge Graph facts tu ai_view", context)
+        self.assertIn("[BELONGS_TO]-> Category:", context)
+        self.assertIn("[PROVIDED_BY]-> Provider:", context)
+        self.assertIn("[HAS_INVENTORY]-> size M: 12", context)
         self.assertIn("size M: 12", context)
+        self.assertIn("Tồn theo size:", context)
 
     async def test_seasonal_recommendation_uses_context_categories(self) -> None:
         settings = Settings(AI_CONTEXT_SOURCE="db", MAX_CONTEXT_ITEMS=5)
@@ -72,6 +108,37 @@ class ContextBuilderTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(source, "db")
         self.assertIn("không chứa dữ liệu đơn hàng cá nhân", context)
+
+
+    async def test_voucher_context_includes_knowledge_graph_facts(self) -> None:
+        settings = Settings(AI_CONTEXT_SOURCE="db", MAX_CONTEXT_ITEMS=5)
+        builder = ContextBuilder(settings, FakeDatabaseClient())
+        intent = IntentResult(intent="voucher_info", confidence=0.8)
+
+        context, source = await builder.build(intent)
+
+        self.assertEqual(source, "db")
+        self.assertIn("Knowledge Graph facts tu ai_view", context)
+        self.assertIn("Voucher:WELCOME10", context)
+        self.assertIn("[APPLIES_TO]-> Scope:GLOBAL", context)
+        self.assertIn("voucher", context)
+
+    async def test_review_context_includes_knowledge_graph_facts(self) -> None:
+        settings = Settings(AI_CONTEXT_SOURCE="db", MAX_CONTEXT_ITEMS=5)
+        builder = ContextBuilder(settings, FakeDatabaseClient())
+        intent = IntentResult(
+            intent="product_review",
+            confidence=0.8,
+            extracted=ExtractedEntities(product_name="Ã¡o thun"),
+        )
+
+        context, source = await builder.build(intent)
+
+        self.assertEqual(source, "db")
+        self.assertIn("Knowledge Graph facts tu ai_view", context)
+        self.assertIn("[HAS_REVIEW]-> Review:1:TSH-001", context)
+        self.assertIn("[HAS_RATING]-> 5", context)
+        self.assertIn("Review", context)
 
 
 if __name__ == "__main__":

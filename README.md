@@ -86,6 +86,18 @@ MAX_CONTEXT_ITEMS=5
 
 Sau khi import dump gốc vào database `tmdt`, chạy [public/ai-view.sql](public/ai-view.sql) để tạo schema `ai_view` chỉ đọc cho AI. Nếu dùng `pg_cron`, chạy thêm [public/ai-cron.sql](public/ai-cron.sql) để refresh nhóm catalog mỗi ngày và tồn kho mỗi giờ.
 
+### Knowledge Graph / GraphRAG
+
+Service định dạng context thành graph facts dựa trên dữ liệu đã query từ `ai_view`, ví dụ `Product -> Category`, `Product -> Provider`, `Product -> Inventory`, `Voucher -> Scope`. Nhờ vậy Gemini nhận facts rõ quan hệ hơn thay vì chỉ một đoạn text.
+
+Nếu muốn expose graph ngay trong PostgreSQL để debug/truy vấn riêng, chạy thêm [public/ai-kg.sql](public/ai-kg.sql) sau `ai-view.sql`:
+
+```powershell
+psql -d tmdt -f public/ai-kg.sql
+```
+
+File này tạo schema `ai_kg` với hai view `entities` và `relations`, đều derive từ `ai_view` nên không thay đổi nguồn dữ liệu chuẩn.
+
 ## Cấu trúc
 
 ```text
@@ -104,6 +116,7 @@ src/app/
 ├── services/
 │   ├── classifier.py
 │   ├── context_builder.py
+│   ├── knowledge_graph.py
 │   ├── db_client.py
 │   ├── dependencies.py
 │   ├── gemini_client.py
@@ -113,5 +126,6 @@ src/app/
     └── text.py
 public/
 ├── ai-view.sql
+├── ai-kg.sql
 └── ai-cron.sql
 ```

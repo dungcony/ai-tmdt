@@ -6,6 +6,14 @@ import httpx
 from app.config import Settings
 
 
+class GeminiResponseError(Exception):
+    """Raised when Gemini returns an unusable response (blocked, empty, etc.).
+
+    This is distinct from configuration errors (e.g. missing API key) so the API
+    layer can map it to a user-friendly fallback instead of a 500 with internals.
+    """
+
+
 INTENT_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "properties": {
@@ -37,6 +45,16 @@ INTENT_RESPONSE_SCHEMA: dict[str, Any] = {
 }
 
 
+# Reasonable defaults for an e-commerce chatbot — block only the highest risk
+# categories so legitimate fashion-related questions are not over-filtered.
+DEFAULT_SAFETY_SETTINGS: list[dict[str, str]] = [
+    {"category": "HARM_CATEGORY_HARASSMENT", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_HATE_SPEECH", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_SEXUALLY_EXPLICIT", "threshold": "BLOCK_ONLY_HIGH"},
+    {"category": "HARM_CATEGORY_DANGEROUS_CONTENT", "threshold": "BLOCK_ONLY_HIGH"},
+]
+
+
 class GeminiClient:
     def __init__(self, settings: Settings) -> None:
         self.settings = settings
@@ -52,6 +70,8 @@ class GeminiClient:
         *,
         max_tokens: int = 512,
         temperature: float = 0.2,
+        top_p: float | None = None,
+        top_k: int | None = None,
         response_schema: dict[str, Any] | None = None,
     ) -> str:
         if not self.settings.gemini_api_key:
@@ -61,29 +81,36 @@ class GeminiClient:
             "temperature": temperature,
             "maxOutputTokens": max_tokens,
         }
+        if top_p is not None:
+            generation_config["topP"] = top_p
+        if top_k is not None:
+            generation_config["topK"] = top_k
         if response_schema:
             generation_config["responseMimeType"] = "application/json"
             generation_config["responseSchema"] = response_schema
+
+        payload: dict[str, Any] = {
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "contents": [
+                {
+                    "role": "user",
+                    "parts": [{"text": user_prompt}],
+                }
+            ],
+            "generationConfig": generation_config,
+            "safetySettings": DEFAULT_SAFETY_SETTINGS,
+        }
 
         async with httpx.AsyncClient(timeout=self.settings.request_timeout_seconds) as client:
             response = await client.post(
                 self.endpoint,
                 params={"key": self.settings.gemini_api_key},
-                json={
-                    "systemInstruction": {"parts": [{"text": system_prompt}]},
-                    "contents": [
-                        {
-                            "role": "user",
-                            "parts": [{"text": user_prompt}],
-                        }
-                    ],
-                    "generationConfig": generation_config,
-                },
+                json=payload,
             )
             response.raise_for_status()
 
         data = response.json()
-        return data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        return _extract_text(data)
 
     async def generate_json(
         self,
@@ -101,3 +128,34 @@ class GeminiClient:
             response_schema=response_schema,
         )
         return json.loads(raw)
+
+
+def _extract_text(data: dict[str, Any]) -> str:
+    """Extract text from Gemini response, handling safety blocks and empty candidates.
+
+    Note: when finishReason is MAX_TOKENS but text is non-empty, we still return
+    the partial text — callers may want to bump max_tokens if truncation matters.
+    """
+    prompt_feedback = data.get("promptFeedback") or {}
+    block_reason = prompt_feedback.get("blockReason")
+    if block_reason:
+        raise GeminiResponseError(f"prompt_blocked:{block_reason}")
+
+    candidates = data.get("candidates") or []
+    if not candidates:
+        raise GeminiResponseError("no_candidates")
+
+    candidate = candidates[0]
+    finish_reason = candidate.get("finishReason")
+
+    parts = (candidate.get("content") or {}).get("parts") or []
+    text = "".join(part.get("text", "") for part in parts).strip()
+
+    if not text:
+        if finish_reason == "SAFETY":
+            raise GeminiResponseError("safety_blocked")
+        if finish_reason == "MAX_TOKENS":
+            raise GeminiResponseError("max_tokens_truncated")
+        raise GeminiResponseError(f"empty:{finish_reason}")
+
+    return text

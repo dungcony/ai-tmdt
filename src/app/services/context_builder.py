@@ -6,6 +6,7 @@ from psycopg import Error as PsycopgError
 from app.config import Settings
 from app.models import IntentResult
 from app.services.db_client import DatabaseClient
+from app.services.knowledge_graph import KnowledgeGraphContextBuilder
 from app.services.product_context import detect_season_context
 from app.utils.formatting import format_money
 
@@ -14,6 +15,7 @@ class ContextBuilder:
     def __init__(self, settings: Settings, database: DatabaseClient) -> None:
         self.settings = settings
         self.database = database
+        self.knowledge_graph = KnowledgeGraphContextBuilder()
 
     async def build(self, intent_result: IntentResult, authorization: str | None = None) -> tuple[str, str]:
         if self.settings.ai_context_source == "none":
@@ -100,23 +102,37 @@ class ContextBuilder:
             extracted.size,
         )
 
-        lines = ["Dữ liệu sản phẩm từ ai_view:"]
+        lines: list[str] = []
+        graph_context = self.knowledge_graph.product_facts(
+            products,
+            inventory_by_product,
+            retrieval_note=context_note,
+        )
+        if graph_context:
+            lines.extend(graph_context.splitlines())
+            lines.append("")
+
+        lines.append("Dữ liệu sản phẩm từ ai_view:")
         if context_note:
             lines.append(context_note)
         for product in products:
             stock_lines = inventory_by_product.get(product["id"]) or []
-            stock_text = "; ".join(stock_lines) if stock_lines else "chưa có dữ liệu tồn kho phù hợp"
-            lines.append(
-                "- "
-                f"{product['name']} | mã {product['code']} | "
-                f"giá {format_money(product['price'])} | "
-                f"trạng thái {product.get('status') or 'N/A'} | "
-                f"thương hiệu {product.get('provider_name') or 'N/A'} | "
-                f"danh mục {product.get('category_name') or 'N/A'} | "
-                f"rating {product.get('rated') or 'N/A'} | "
-                f"tồn tổng {int(product.get('available_quantity') or 0)} | "
-                f"{stock_text}"
-            )
+            stock_text = ", ".join(stock_lines) if stock_lines else "chưa có dữ liệu tồn kho theo size"
+            available_total = int(product.get("available_quantity") or 0)
+            sold = product.get("quantity_sold")
+            details = [
+                f"mã {product['code']}",
+                f"giá {format_money(product['price'])}",
+                f"trạng thái {product.get('status') or 'N/A'}",
+                f"thương hiệu {product.get('provider_name') or 'N/A'}",
+                f"danh mục {product.get('category_name') or 'N/A'}",
+                f"rating {product.get('rated') or 'N/A'}",
+                f"tồn tổng {available_total}",
+            ]
+            if sold is not None:
+                details.append(f"đã bán {sold}")
+            lines.append(f"- {product['name']} ({' | '.join(details)})")
+            lines.append(f"  Tồn theo size: {stock_text}")
 
         size_context = await self._size_chart_context(extracted.size)
         if size_context:
@@ -234,7 +250,13 @@ class ContextBuilder:
         if not vouchers and not promotions:
             return "Không có voucher hoặc khuyến mãi công khai đang hoạt động trong ai_view."
 
-        lines = ["Khuyến mãi/voucher công khai từ ai_view:"]
+        lines: list[str] = []
+        graph_context = self.knowledge_graph.promotion_facts(vouchers, promotions)
+        if graph_context:
+            lines.extend(graph_context.splitlines())
+            lines.append("")
+
+        lines.append("Khuyến mãi/voucher công khai từ ai_view:")
         for voucher in vouchers:
             suffix = "%" if voucher.get("discount_type") == "PERCENT" else "đ"
             lines.append(
@@ -292,7 +314,13 @@ class ContextBuilder:
         if not rows:
             return "Không tìm thấy review phù hợp trong ai_view.product_reviews."
 
-        lines = ["Review sản phẩm từ ai_view:"]
+        lines: list[str] = []
+        graph_context = self.knowledge_graph.review_facts(rows)
+        if graph_context:
+            lines.extend(graph_context.splitlines())
+            lines.append("")
+
+        lines.append("Review sản phẩm từ ai_view:")
         for row in rows:
             lines.append(
                 "- "
