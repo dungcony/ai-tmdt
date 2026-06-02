@@ -104,8 +104,8 @@ CREATE INDEX ai_view_promotions_end_at_idx ON ai_view.promotions (end_at);
 CREATE MATERIALIZED VIEW ai_view.vouchers AS
 SELECT id,
        code,
-       "discountType" AS discount_type,
-       "voucherType"  AS voucher_type,
+       discount_type,
+       voucher_type,
        status,
        value,
        min_order_amount,
@@ -113,7 +113,7 @@ SELECT id,
        end_at
 FROM public.tbl_vouchers
 WHERE status = 'ACTIVE'
-  AND "voucherType" = 'GLOBAL'
+  AND voucher_type = 'GLOBAL'
   AND (start_at IS NULL OR start_at <= now())
   AND (end_at IS NULL OR end_at > now())
 WITH DATA;

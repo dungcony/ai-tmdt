@@ -52,3 +52,22 @@ class HealthResponse(BaseModel):
     status: str
     gemini_model: str
     context_source: str
+
+
+class DatabaseSampleProduct(BaseModel):
+    code: str | None = None
+    name: str | None = None
+    price: str | None = None
+    status: str | None = None
+
+
+class DatabaseHealthResponse(BaseModel):
+    status: Literal["ok", "error", "disabled"]
+    context_source: str
+    configured_schema: str
+    current_database: str | None = None
+    current_schema: str | None = None
+    current_user: str | None = None
+    counts: dict[str, int] = Field(default_factory=dict)
+    sample_products: list[DatabaseSampleProduct] = Field(default_factory=list)
+    error: str | None = None
